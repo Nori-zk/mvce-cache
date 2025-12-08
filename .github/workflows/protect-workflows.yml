@@ -13,37 +13,34 @@ jobs:
       pull-requests: write
     
     steps:
-      - name: Checkout base branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr-code
-          
       - name: Check for workflow changes
         id: check
         continue-on-error: true
-        run: |
-          echo "Checking for changes in .github/workflows/"
-          
-          # Get list of changed files in the PR
-          cd pr-code
-          git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} > /tmp/changed_files.txt
-          
-          # Check if any workflow files changed
-          if grep -q "^\.github/workflows/" /tmp/changed_files.txt; then
-            echo "workflow_changed=true" >> $GITHUB_OUTPUT
-            echo "Workflow files modified:"
-            grep "^\.github/workflows/" /tmp/changed_files.txt | tee /tmp/workflow_files.txt
-            exit 1
-          else
-            echo "workflow_changed=false" >> $GITHUB_OUTPUT
-            echo "No workflow files changed"
-          fi
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Get list of changed files in the PR
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            // Check if any workflow files changed
+            const workflowFiles = files.filter(f => f.filename.startsWith('.github/workflows/'));
+            
+            if (workflowFiles.length > 0) {
+              console.log('Workflow files modified:');
+              const filenames = workflowFiles.map(f => f.filename).join('\n');
+              console.log(filenames);
+              fs.writeFileSync('/tmp/workflow_files.txt', filenames);
+              core.setOutput('workflow_changed', 'true');
+            } else {
+              console.log('No workflow files changed');
+              core.setOutput('workflow_changed', 'false');
+            }
       
       - name: Write job summary
         if: always()
