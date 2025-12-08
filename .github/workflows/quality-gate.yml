@@ -1,7 +1,7 @@
 name: Quality Gate
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize]
   push:
     branches:
@@ -49,9 +49,7 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -377,21 +375,25 @@ jobs:
             report += `| Unit Tests | ${config.checks.testUnit.enabled} | ${config.checks.testUnit.required} |\n\n`;
             report += `**Note:** Integration and E2E tests are checked for existence but run in CI/CD pipeline.\n`;
             
-            // Post comment only if this is a PR
+            // Always write to GitHub Actions Job Summary (visible in the Actions tab)
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
+            console.log('Quality gate report written to job summary');
+            
+            // Additionally, try to post as PR comment if this is a PR
             if (context.issue.number) {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: report
-              });
-              console.log('Posted quality gate comment to PR');
-            } else {
-              // Write to GitHub Actions Job Summary for push events
-              const fs = require('fs');
-              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
-              console.log('Quality gate report written to job summary');
+              try {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: report
+                });
+                console.log('Posted quality gate comment to PR');
+              } catch (error) {
+                console.log('Failed to post PR comment (likely fork PR with read-only token):', error.message);
+              }
             }
+            
             // Fail if required checks failed
             if (results.hardFailures.length > 0) {
               console.log('\nOVERALL: FAIL');
